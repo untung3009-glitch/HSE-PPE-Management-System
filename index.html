@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Permohonan APD Berjenjang (Online)</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // ==========================================
+        // KONFIGURASI FIREBASE (GANTI DENGAN MILIK ANDA)
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDXXXXXXXXXXXXXXXXXXX",
+            authDomain: "sistem-apd-xxxxx.firebaseapp.com",
+            databaseURL: "https://sistem-apd-xxxxx-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "sistem-apd-xxxxx",
+            storageBucket: "sistem-apd-xxxxx.appspot.com",
+            messagingSenderId: "000000000000",
+            appId: "1:000000000000:web:xxxxxxxxxxxxxxxx"
+        };
+        
+        // Inisialisasi Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.database();
+
+        // ==========================================
+        // KOMPONEN UPLOAD FILE (BASE64 UNTUK FIREBASE)
+        // ==========================================
+        const UploadFileComponent = ({ label, onFileChange, accept }) => {
+            const [fileData, setFileData] = useState(null);
+
+            const handleFile = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                // Konversi file ke Base64 agar bisa disimpan di Realtime Database
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const newData = { url: reader.result, type: file.type, name: file.name };
+                    setFileData(newData);
+                    if(onFileChange) onFileChange(newData);
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const removeFile = () => {
+                setFileData(null);
+                if(onFileChange) onFileChange(null);
+            };
+
+            return (
+                <div className="flex flex-col space-y-2">
+                    <label className="text-sm font-semibold text-gray-700">{label}</label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 text-center">
+                        {fileData ? (
+                            <div className="flex flex-col items-center">
+                                {fileData.type.includes('image') ? (
+                                    <img src={fileData.url} alt="Preview" className="max-h-24 object-contain mb-2 rounded border p-1 bg-white"/>
+                                ) : (
+                                    <a href={fileData.url} target="_blank" className="text-blue-600 hover:underline flex items-center gap-2 mb-2 bg-white p-2 rounded border">
+                                        <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                                        <span className="text-sm font-semibold">Lihat File</span>
+                                    </a>
+                                )}
+                                <p className="text-xs text-gray-500 mb-2 truncate w-full">{fileData.name}</p>
+                                <button type="button" onClick={removeFile} className="text-xs text-red-500 hover:text-red-700 underline">Hapus</button>
+                            </div>
+                        ) : (
+                            <div>
+                                <p className="text-gray-400 text-sm mb-2">Upload File</p>
+                                <input type="file" accept={accept || "*"} onChange={handleFile} className="text-sm w-full max-w-xs mx-auto" />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // HALAMAN LOGIN
+        // ==========================================
+        const LoginPage = ({ onLogin }) => {
+            const [name, setName] = useState('');
+            const [role, setRole] = useState('Pemohon');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!name.trim()) { alert('Harap masukkan nama Anda!'); return; }
+                onLogin({ name: name.trim(), role: role });
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-800 to-indigo-900 p-4">
+                    <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
+                        <div className="text-center mb-6">
+                            <img src="https://z-cdn-media.chatglm.cn/files/6e991294-eda2-4ba0-971c-6f276f65ddfa.png?auth_key=1880806202-a5cd1dabe83440bf85811ec22f326b87-0-5098cb5b75d556ca87953bc5943b1bba" alt="Logo LiuGong" className="h-12 mx-auto mb-4 object-contain"/>
+                            <h1 className="text-3xl font-bold text-gray-800">HSE - APD System</h1>
+                            <p className="text-gray-500 mt-2">Sistem Berjenjang Real-time</p>
+                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div><label className="block text-sm font-medium text-gray-700">Nama Lengkap</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" required /></div>
+                            <div><label className="block text-sm font-medium text-gray-700">Jabatan</label><select value={role} onChange={(e) => setRole(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"><option value="Pemohon">Karyawan / Pemohon</option><option value="HSE">HSE Department</option><option value="Manager">Project Manager</option><option value="AdminGudang">Admin Gudang</option></select></div>
+                            <button type="submit" className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 font-semibold mt-4">MASUK</button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // HALAMAN DASHBOARD
+        // ==========================================
+        const Dashboard = ({ pengajuanList, currentUser }) => {
+            const list = currentUser.role === 'Pemohon' ? pengajuanList.filter(p => p.namaPemohon === currentUser.name) : currentUser.role === 'AdminGudang' ? pengajuanList.filter(p => ['Approved', 'Proses Gudang', 'Siap Serah Terima'].includes(p.status)) : pengajuanList;
+            const total = list.length;const reviewHSE = list.filter(p => p.status === 'Under Review HSE').length;const reviewPM = list.filter(p => p.status === 'Under Review Project Manager').length;const prosesGudang = list.filter(p => p.status === 'Approved' || p.status === 'Proses Gudang').length;const selesai = list.filter(p => p.status === 'Selesai').length;const rejected = list.filter(p => p.status.includes('Rejected')).length;
+            const summaryData = [ { title: 'Total', value: total, icon: '📦', color: 'bg-blue-500' }, { title: 'Review HSE', value: reviewHSE, icon: '⏳', color: 'bg-yellow-500' }, { title: 'Review PM', value: reviewPM, icon: '👔', color: 'bg-indigo-500' }, { title: 'Proses Gudang', value: prosesGudang, icon: '🏭', color: 'bg-orange-500' }, { title: 'Selesai', value: selesai, icon: '✅', color: 'bg-green-500' }, { title: 'Ditolak', value: rejected, icon: '❌', color: 'bg-red-500' } ];
+            return (<div><h1 className="text-2xl font-bold mb-6 text-gray-800">Dashboard Monitoring APD</h1><div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">{summaryData.map((data, index) => (<div key={index} className="bg-white p-4 rounded-lg shadow flex flex-col items-center justify-center text-center"><div className={`${data.color} p-2 rounded-full text-white text-2xl mb-2 w-10 h-10 flex items-center justify-center`}>{data.icon}</div><p className="text-2xl font-bold text-gray-800">{data.value}</p><p className="text-xs text-gray-500 mt-1">{data.title}</p></div>))}</div></div>);
+        };
+
+        // ==========================================
+        // FORM PERMOHONAN APD
+        // ==========================================
+        const FormPengajuan = ({ addPengajuan, setPage, currentUser }) => {
+            const masterApdList = [ { id: 1, name: 'Wearpack' }, { id: 2, name: 'Safety Helmet' }, { id: 3, name: 'Safety Shoes' }, { id: 4, name: 'Safety Glasses' }, { id: 5, name: 'Ear Plug' }, { id: 6, name: 'Respirator' } ];
+            const [form, setForm] = useState({ namaPengajuan: '', namaPemohon: currentUser.name, idKaryawan: '', jabatan: '', departemen: '', lokasiKerja: '', alasan: '', jenisPermintaan: 'APD Baru', kategoriKeterangan: 'Kebutuhan Rutin' });
+            const [selectedApds, setSelectedApds] = useState([]);
+            const [dokumentasi, setDokumentasi] = useState([]);
+
+            const handleFormChange = (e) => { setForm({ ...form, [e.target.name]: e.target.value }); };
+            const handleAddApd = () => { setSelectedApds([ ...selectedApds, { apdId: '', ukuran: '', jumlah: 1, keterangan: '' }]); };
+            const handleRemoveApd = (index) => { const list = [...selectedApds]; list.splice(index, 1); setSelectedApds(list); };
+            const handleApdChange = (index, field, value) => { const list = [...selectedApds]; list[index][field] = value; setSelectedApds(list); };
+            
+            const handleDokumenChange = (fileData) => {
+                if(fileData) setDokumentasi(prev => [...prev, fileData]);
+            };
+            const removeDokumen = (index) => { const list = [...dokumentasi]; list.splice(index, 1); setDokumentasi(list); };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (selectedApds.length === 0) { alert('Tambahkan minimal 1 APD!'); return; }
+                const newItem = {
+                    nomorPengajuan: `APD-${new Date().toISOString().slice(2,4)}${new Date().getMonth()+1}-${Math.floor(Math.random() * 9000) + 1000}`,
+                    tanggal: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+                    ...form, 
+                    items: selectedApds.map(item => { const apdMaster = masterApdList.find(a => a.id === parseInt(item.apdId)); return `${apdMaster?.name || 'APD'} (Size: ${item.ukuran}, Qty: ${item.jumlah})`; }).join('; '),
+                    dokumentasi: dokumentasi,
+                    status: 'Under Review HSE',
+                    signatures: { hse: null, manager: null, admin: null, penerima: null },
+                    auditTrail: [ { timestamp: new Date().toLocaleString('id-ID'), actor: form.namaPemohon, role: 'Pemohon', action: 'Submitted', comment: `Kategori: ${form.kategoriKeterangan}` } ]
+                };
+                addPengajuan(newItem); 
+                alert('Permohonan berhasil dikirim!'); 
+                setPage('arsip');
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-4 md:p-8">
+                    <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-6 border-b pb-4">📝 Formulir Permohonan APD</h2>
+                    <form onSubmit={handleSubmit} className="space-y-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-blue-50 p-4 border border-blue-200 rounded-lg">
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Pengajuan *</label><input type="text" name="namaPengajuan" value={form.namaPengajuan} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2" required/></div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Kategori Keterangan *</label>
+                                <select name="kategoriKeterangan" value={form.kategoriKeterangan} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white">
+                                    <option value="Kebutuhan Rutin">Kebutuhan Rutin</option>
+                                    <option value="Proyek Baru">Proyek Baru</option>
+                                    <option value="Kecelakaan Kerja">Kecelakaan Kerja</option>
+                                    <option value="Umur Pakai Habis">Umur Pakai Habis</option>
+                                    <option value="Kehilangan">Kehilangan</option>
+                                    <option value="Lainnya">Lainnya</option>
+                                </select>
+                            </div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Jenis Permintaan</label><select name="jenisPermintaan" value={form.jenisPermintaan} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2"><option value="APD Baru">APD Baru</option><option value="Penggantian Rusak">Penggantian Rusak</option><option value="Hilang">Hilang</option></select></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Pemohon *</label><input type="text" name="namaPemohon" value={form.namaPemohon} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2" required/></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">ID Karyawan *</label><input type="text" name="idKaryawan" value={form.idKaryawan} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2" required/></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Jabatan *</label><input type="text" name="jabatan" value={form.jabatan} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2" required/></div>
+                            <div><label className="block text-sm font-medium text-gray-700 mb-1">Departemen *</label><input type="text" name="departemen" value={form.departemen} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2" required/></div>
+                            <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Lokasi Kerja *</label><input type="text" name="lokasiKerja" value={form.lokasiKerja} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2" required/></div>
+                            <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Alasan Lengkap *</label><textarea name="alasan" rows="3" value={form.alasan} onChange={handleFormChange} className="block w-full border border-gray-300 rounded-md shadow-sm p-2" required></textarea></div>
+                        </div>
+                        
+                        <div className="bg-gray-50 p-4 border rounded-md">
+                            <h4 className="font-medium text-gray-800 mb-3">📸 Bukti Dokumentasi</h4>
+                            <UploadFileComponent label="Pilih File Dokumentasi" onFileChange={handleDokumenChange} accept="image/*,.pdf" />
+                            <div className="mt-4 space-y-3">
+                                {dokumentasi.map((doc, index) => (
+                                    <div key={index} className="bg-white border rounded-lg p-3 shadow-sm flex gap-3 items-center">
+                                        {doc.type.includes('image') ? <img src={doc.url} alt="Preview" className="w-20 h-20 object-cover rounded border flex-shrink-0"/> : <div className="w-20 h-20 bg-red-50 rounded border flex items-center justify-center flex-shrink-0 text-red-500 font-bold text-xs">PDF</div>}
+                                        <div className="flex-1"><p className="text-xs font-semibold text-gray-700 truncate">{doc.name}</p></div>
+                                        <button type="button" onClick={() => removeDokumen(index)} className="text-red-500 hover:text-red-700 font-bold text-lg">✕</button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="bg-gray-50 p-4 border rounded-md">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-3 gap-2">
+                                <h4 className="font-medium text-gray-800">🛡️ Detail APD</h4>
+                                <button type="button" onClick={handleAddApd} className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 w-full md:w-auto justify-center">+ Tambah APD</button>
+                            </div>
+                            <div className="overflow-x-auto">
+                                {selectedApds.map((item, index) => (
+                                    <div key={index} className="grid grid-cols-12 gap-2 mb-3 items-center bg-white p-3 border rounded shadow-sm min-w-[500px]">
+                                        <div className="col-span-5"><select value={item.apdId} onChange={(e) => handleApdChange(index, 'apdId', e.target.value)} className="mt-1 block w-full border border-gray-300 rounded p-1.5 text-sm" required><option value="">Pilih APD</option>{masterApdList.map((apd) => (<option key={apd.id} value={apd.id}>{apd.name}</option>))}</select></div>
+                                        <div className="col-span-2"><input type="text" placeholder="Ukuran" value={item.ukuran} onChange={(e) => handleApdChange(index, 'ukuran', e.target.value)} className="mt-1 block w-full border border-gray-300 rounded p-1.5 text-sm" /></div>
+                                        <div className="col-span-2"><input type="number" min="1" value={item.jumlah} onChange={(e) => handleApdChange(index, 'jumlah', e.target.value)} className="mt-1 block w-full border border-gray-300 rounded p-1.5 text-sm" required/></div>
+                                        <div className="col-span-2"><input type="text" placeholder="Ket" value={item.keterangan} onChange={(e) => handleApdChange(index, 'keterangan', e.target.value)} className="mt-1 block w-full border border-gray-300 rounded p-1.5 text-sm" /></div>
+                                        <div className="col-span-1 flex justify-center"><button type="button" onClick={() => handleRemoveApd(index)} className="text-red-500 hover:text-red-700 text-xl font-bold">✕</button></div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="flex justify-end pt-4 border-t"><button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 font-semibold shadow w-full md:w-auto">Submit Permohonan</button></div>
+                    </form>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // KOMPONEN PREVIEW FILE (HELPER)
+        // ==========================================
+        const FilePreview = ({ fileData }) => {
+            if (!fileData) return <p className="text-red-400 text-sm italic">Belum ada file</p>;
+            if (fileData.type.includes('image')) return <img src={fileData.url} alt="Preview" className="h-24 border bg-white p-1 rounded object-contain mx-auto"/>;
+            return <a href={fileData.url} target="_blank" className="text-blue-600 hover:underline flex items-center justify-center gap-1 text-sm"><svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg> Lihat File</a>;
+        };
+
+        // ==========================================
+        // HALAMAN REVIEW & E-SIGN
+        // ==========================================
+        const ReviewPage = ({ pengajuan, onBack, onAction, currentUser }) => {
+            const [comment, setComment] = useState('');
+            const [signatureData, setSignatureData] = useState(null);
+            
+            const getStatusBadge = (status) => { if(status.includes('Rejected')) return 'bg-red-100 text-red-800'; if(status === 'Selesai' || status === 'Approved') return 'bg-green-100 text-green-800'; if(status.includes('Review')) return 'bg-yellow-100 text-yellow-800'; return 'bg-gray-100 text-gray-800'; };
+
+            const handleApprove = () => {
+                if(!comment.trim()) { alert('Harap berikan catatan review.'); return; }
+                if(!signatureData) { alert('Harap upload file Tanda Tangan sebelum menyetujui!'); return; }
+                onAction(pengajuan.id, 'approve', comment, signatureData);
+            };
+
+            const handleReject = () => {
+                if(!comment.trim()) { alert('Harap berikan alasan penolakan.'); return; }
+                onAction(pengajuan.id, 'reject', comment, null);
+            };
+
+            const canAct = (currentUser.role === 'HSE' && pengajuan.status === 'Under Review HSE') || (currentUser.role === 'Manager' && pengajuan.status === 'Under Review Project Manager');
+
+            return (
+                <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-4 md:p-8">
+                    <button onClick={onBack} className="text-blue-600 hover:underline mb-4 inline-block">← Kembali ke Antrian</button>
+                    <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-6 border-b pb-4">Review: {pengajuan.nomorPengajuan}</h2>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 bg-gray-50 p-6 rounded-lg border">
+                        <div><p className="text-xs text-gray-500">Pemohon</p><p className="font-bold">{pengajuan.namaPemohon} ({pengajuan.idKaryawan})</p></div>
+                        <div><p className="text-xs text-gray-500">Jabatan / Dept</p><p className="font-bold">{pengajuan.jabatan} - {pengajuan.departemen}</p></div>
+                        <div><p className="text-xs text-gray-500">Kategori Keterangan</p><p className="font-bold text-blue-700">{pengajuan.kategoriKeterangan || '-'}</p></div>
+                        <div><p className="text-xs text-gray-500">Status</p><span className={`text-xs px-2 py-1 rounded-full font-medium ${getStatusBadge(pengajuan.status)}`}>{pengajuan.status}</span></div>
+                        <div className="md:col-span-2"><p className="text-xs text-gray-500">Item APD</p><p className="font-semibold text-sm">{pengajuan.items}</p></div>
+                    </div>
+
+                    {pengajuan.dokumentasi && pengajuan.dokumentasi.length > 0 && (
+                         <div className="mb-8"><h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">📸 Bukti Dokumentasi</h3><div className="grid grid-cols-2 md:grid-cols-3 gap-4">{pengajuan.dokumentasi.map((doc, i) => (<div key={i} className="border rounded bg-white p-2">{doc.type.includes('image') ? <img src={doc.url} className="w-full h-32 object-cover rounded"/> : <div className="h-32 bg-red-50 flex items-center justify-center text-red-500 font-bold">PDF</div>}<p className="text-xs mt-2 text-gray-600 italic truncate">{doc.name}</p></div>))}</div></div>
+                    )}
+
+                    <div className="mb-8">
+                        <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">Riwayat Audit Trail</h3>
+                        <div className="space-y-4 relative border-l-2 border-gray-200 ml-2 pl-6">
+                            {pengajuan.auditTrail && pengajuan.auditTrail.map((log, index) => (
+                                <div key={index} className="relative"><div className="absolute -left-[1.9rem] top-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-white"></div><p className="text-xs text-gray-500">{log.timestamp} | <span className="font-semibold">{log.actor} ({log.role})</span></p><p className="text-sm font-semibold text-gray-800">{log.action}</p>{log.comment && <p className="text-sm text-gray-600 bg-white p-2 rounded shadow-sm mt-1 border italic">"{log.comment}"</p>}</div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {canAct && (
+                        <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                            <h3 className="text-lg font-bold text-blue-800 mb-2">Form Persetujuan ({currentUser.role})</h3>
+                            <textarea rows="3" placeholder="Tulis catatan review..." value={comment} onChange={(e) => setComment(e.target.value)} className="block w-full border border-gray-300 rounded-md shadow-sm p-2 mb-4" required></textarea>
+                            <div className="mb-4">
+                                <UploadFileComponent label="Upload Tanda Tangan Persetujuan (Wajib)" onSignatureChange={setSignatureData} onFileChange={setSignatureData} accept="image/*,.pdf" />
+                            </div>
+                            <div className="flex flex-col md:flex-row gap-4 justify-end">
+                                <button onClick={handleReject} className="px-6 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700 font-semibold w-full md:w-auto">Reject</button>
+                                <button onClick={handleApprove} className="px-6 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 font-semibold w-full md:w-auto">Approve</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
+        // KOMPONEN UTAMA (FIREBASE REALTIME)
+        // ==========================================
+        const App = () => {
+            const [currentUser, setCurrentUser] = useState(null);
+            const [page, setPage] = useState('dashboard');
+            const [pengajuanList, setPengajuanList] = useState([]);
+            const [selectedPengajuan, setSelectedPengajuan] = useState(null);
+            const [logoUrl, setLogoUrl] = useState("https://z-cdn-media.chatglm.cn/files/6e991294-eda2-4ba0-971c-6f276f65ddfa.png?auth_key=1880806202-a5cd1dabe83440bf85811ec22f326b87-0-5098cb5b75d556ca87953bc5943b1bba"); 
+            const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+
+            // LISTEN TO FIREBASE REALTIME DATABASE
+            useEffect(() => {
+                const pengajuanRef = db.ref('pengajuan');
+                pengajuanRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    const list = data ? Object.keys(data).map(key => ({id: key, ...data[key]})) : [];
+                    // Urutkan dari yang terbaru
+                    list.sort((a, b) => (b.auditTrail && b.auditTrail.length) - (a.auditTrail && a.auditTrail.length));
+                    setPengajuanList(list);
+                });
+                return () => pengajuanRef.off();
+            }, []);
+
+            const handleLogin = (user) => { setCurrentUser(user); setPage('dashboard'); };
+            const handleLogout = () => { setCurrentUser(null); setPage('dashboard'); setSelectedPengajuan(null); setIsSidebarOpen(false); };
+            
+            const addPengajuan = (newItem) => { 
+                db.ref('pengajuan').push(newItem); 
+            };
+            
+            const updatePengajuanInDb = (id, updatedData) => {
+                db.ref('pengajuan/' + id).update(updatedData);
+            };
+
+            const updateStatus = (id, newStatus) => {
+                const updatedData = { 
+                    status: newStatus, 
+                    auditTrail: [...(pengajuanList.find(p => p.id === id)?.auditTrail || []), { timestamp: new Date().toLocaleString('id-ID'), actor: currentUser.name, role: currentUser.role, action: `Status: ${newStatus}`, comment: '' }]
+                };
+                updatePengajuanInDb(id, updatedData);
+            };
+
+            const handleAction = (id, actionType, comment, signatureData) => {
+                const p = pengajuanList.find(p => p.id === id);
+                if(!p) return;
+
+                let newStatus = p.status; let actionStr = ""; let newSigs = {...p.signatures};
+                if (actionType === 'approve') {
+                    if (currentUser.role === 'HSE') { newStatus = 'Under Review Project Manager'; actionStr = 'Approved HSE'; newSigs.hse = signatureData; }
+                    else if (currentUser.role === 'Manager') { newStatus = 'Approved'; actionStr = 'Approved Project Manager'; newSigs.manager = signatureData; }
+                } else if (actionType === 'reject') {
+                    if (currentUser.role === 'HSE') { newStatus = 'Rejected HSE'; actionStr = 'Rejected HSE'; }
+                    else if (currentUser.role === 'Manager') { newStatus = 'Rejected PM'; actionStr = 'Rejected Project Manager'; }
+                }
+                
+                const updatedData = { 
+                    status: newStatus, 
+                    signatures: newSigs, 
+                    auditTrail: [...p.auditTrail, { timestamp: new Date().toLocaleString('id-ID'), actor: currentUser.name, role: currentUser.role, action: actionStr, comment: comment }] 
+                };
+                
+                updatePengajuanInDb(id, updatedData);
+                alert(`Permohonan di-${actionType === 'approve' ? 'setujui' : 'tolak'}!`); 
+                setSelectedPengajuan(null); 
+                setPage('approval'); 
+                setIsSidebarOpen(false);
+            };
+
+            const handleSerahTerima = (id, ttdPenerima, ttdAdmin) => {
+                const p = pengajuanList.find(p => p.id === id);
+                if(!p) return;
+                let newSigs = {...p.signatures, penerima: ttdPenerima, admin: ttdAdmin};
+                const updatedData = { 
+                    status: 'Selesai', 
+                    signatures: newSigs, 
+                    auditTrail: [...p.auditTrail, { timestamp: new Date().toLocaleString('id-ID'), actor: currentUser.name, role: currentUser.role, action: 'Serah Terima Selesai', comment: 'Ditandatangani Penerima & Admin' }] 
+                };
+                updatePengajuanInDb(id, updatedData);
+                alert('Berita Acara Serah Terima berhasil disimpan!'); 
+                setPage('dashboard'); 
+                setIsSidebarOpen(false);
+            };
+
+            if (!currentUser) return <LoginPage onLogin={handleLogin} />;
+
+            const AdminProcessPage = () => {
+                const approvedList = pengajuanList.filter(p => p.status === 'Approved');
+                const processedList = pengajuanList.filter(p => p.status === 'Proses Gudang' || p.status === 'Siap Serah Terima');
+                return (
+                    <div className="max-w-5xl mx-auto bg-white rounded-lg shadow-md p-4 md:p-8">
+                        <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-6 border-b pb-4">🏭 Proses Pesanan Gudang</h2>
+                        <h3 className="font-bold text-lg mb-4 text-blue-700">Menunggu Diproses</h3>
+                        {approvedList.length === 0 ? <p className="text-gray-400 mb-8">Tidak ada pesanan.</p> : (
+                            <div className="space-y-4 mb-8">{approvedList.map(p => (<div key={p.id} className="border rounded-lg p-4 shadow-sm bg-blue-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4"><div><p className="font-bold">{p.nomorPengajuan}</p><p className="text-sm text-gray-600">{p.items}</p></div><button onClick={() => updateStatus(p.id, 'Proses Gudang')} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-semibold w-full md:w-auto">Mulai Proses</button></div>))}</div>
+                        )}
+                        <h3 className="font-bold text-lg mb-4 text-orange-700">Sedang Diproses / Siap Serah</h3>
+                        {processedList.length === 0 ? <p className="text-gray-400">Kosong.</p> : (
+                            <div className="space-y-4">{processedList.map(p => (<div key={p.id} className="border rounded-lg p-4 shadow-sm bg-orange-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4"><div><p className="font-bold">{p.nomorPengajuan}</p><p className="text-sm text-gray-600">Status: <span className="font-bold">{p.status}</span></p></div>{p.status === 'Proses Gudang' && <button onClick={() => updateStatus(p.id, 'Siap Serah Terima')} className="px-4 py-2 bg-green-600 text-white rounded text-sm font-semibold w-full md:w-auto">Tandai Siap Serah Terima</button>}</div>))}</div>
+                        )}
+                    </div>
+                );
+            };
+
+            const SerahTerimaPage = () => {
+                const [selectedId, setSelectedId] = useState(null);
+                const [ttdPenerima, setTtdPenerima] = useState(null);
+                const [ttdAdmin, setTtdAdmin] = useState(null);
+
+                const readyList = pengajuanList.filter(p => p.status === 'Siap Serah Terima');
+                const selectedItem = pengajuanList.find(p => p.id === selectedId);
+
+                const handleSubmitBA = () => {
+                    if(!ttdPenerima || !ttdAdmin) { alert('Penerima dan Admin Gudang wajib mengupload Tanda Tangan!'); return; }
+                    handleSerahTerima(selectedId, ttdPenerima, ttdAdmin);
+                };
+
+                if (selectedItem) {
+                    return (
+                        <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-4 md:p-8">
+                            <button onClick={() => setSelectedId(null)} className="text-blue-600 hover:underline mb-4 inline-block">← Kembali ke Daftar</button>
+                            <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-6 border-b pb-4">🤝 Berita Acara Serah Terima APD</h2>
+                            <div className="bg-gray-50 p-6 rounded-lg border mb-6"><p className="font-bold text-lg mb-2">{selectedItem.nomorPengajuan}</p><p>Pemohon: <span className="font-semibold">{selectedItem.namaPemohon}</span></p><p>Item: <span className="font-semibold">{selectedItem.items}</span></p></div>
+                            <div className="mb-6"><h3 className="font-semibold text-gray-800 mb-3">Bukti Persetujuan (Approval)</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className="p-3 bg-white border rounded-lg shadow-sm"><p className="text-xs text-gray-500 mb-2 font-semibold">TTD HSE:</p><FilePreview fileData={selectedItem.signatures?.hse} /></div><div className="p-3 bg-white border rounded-lg shadow-sm"><p className="text-xs text-gray-500 mb-2 font-semibold">TTD Project Manager:</p><FilePreview fileData={selectedItem.signatures?.manager} /></div></div></div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200"><UploadFileComponent label="Upload TTD Penerima" onFileChange={setTtdPenerima} accept="image/*,.pdf" /><p className="text-center mt-2 text-sm font-medium text-gray-600">{selectedItem.namaPemohon}</p></div>
+                                <div className="bg-orange-50 p-4 rounded-lg border border-orange-200"><UploadFileComponent label="Upload TTD Admin Gudang" onFileChange={setTtdAdmin} accept="image/*,.pdf" /><p className="text-center mt-2 text-sm font-medium text-gray-600">{currentUser.name}</p></div>
+                            </div>
+                            <div className="flex justify-end pt-6 border-t"><button onClick={handleSubmitBA} className="bg-green-600 text-white px-8 py-3 rounded-md hover:bg-green-700 font-semibold shadow w-full md:w-auto">Simpan Berita Acara & Selesai</button></div>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-4 md:p-8">
+                        <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-6 border-b pb-4">🤝 Daftar Barang Siap Serah Terima</h2>
+                        {readyList.length === 0 ? <p className="text-gray-400 py-8 text-center">Belum ada barang yang siap diserahkan.</p> : (
+                            <div className="space-y-4">{readyList.map(p => (<div key={p.id} className="border rounded-lg p-4 shadow-sm hover:bg-gray-50 transition flex flex-col md:flex-row justify-between items-start md:items-center gap-4"><div><p className="font-bold text-gray-800">{p.nomorPengajuan}</p><p className="text-sm text-gray-600">Pemohon: <span className="font-semibold">{p.namaPemohon}</span></p></div><button onClick={() => setSelectedId(p.id)} className="px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 font-semibold w-full md:w-auto">Proses Serah Terima</button></div>))}</div>
+                        )}
+                    </div>
+                );
+            };
+
+            const ArsipDokumen = () => {
+                const getStatusBadge = (status) => { if(status.includes('Rejected')) return 'bg-red-100 text-red-800'; if(status === 'Selesai' || status === 'Approved') return 'bg-green-100 text-green-800'; if(status.includes('Review')) return 'bg-yellow-100 text-yellow-800'; return 'bg-gray-100 text-gray-800'; };
+                const displayList = currentUser.role === 'Pemohon' ? pengajuanList.filter(p => p.namaPemohon === currentUser.name) : pengajuanList;
+                const exportToExcel = () => { if(displayList.length === 0) { alert("Tidak ada data"); return; } const dataToExport = displayList.map(p => ({ "Nomor": p.nomorPengajuan, "Pemohon": p.namaPemohon, "Keterangan": p.kategoriKeterangan, "Status": p.status })); const ws = XLSX.utils.json_to_sheet(dataToExport); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Arsip"); XLSX.writeFile(wb, "Arsip_APD.xlsx"); };
+                return (<div className="max-w-6xl mx-auto bg-white rounded-lg shadow-md p-4 md:p-8"><div className="flex flex-col md:flex-row justify-between mb-6 border-b pb-4 gap-4"><h2 className="text-xl md:text-2xl font-bold text-gray-800">🗄️ Arsip</h2><button onClick={exportToExcel} className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 font-semibold">📥 Excel</button></div><div className="overflow-x-auto"><table className="min-w-[600px] w-full bg-white border"><thead><tr className="bg-gray-100 text-left text-sm"><th className="py-3 px-4 border-b">Nomor</th><th className="py-3 px-4 border-b">Pemohon</th><th className="py-3 px-4 border-b">Keterangan</th><th className="py-3 px-4 border-b">Status</th></tr></thead><tbody>{displayList.map((p) => (<tr key={p.id} className="hover:bg-gray-50 border-b text-sm"><td className="py-3 px-4 font-medium">{p.nomorPengajuan}</td><td className="py-3 px-4">{p.namaPemohon}</td><td className="py-3 px-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-medium">{p.kategoriKeterangan || '-'}</span></td><td className="py-3 px-4"><span className={`text-xs px-2 py-1 rounded-full font-medium ${getStatusBadge(p.status)}`}>{p.status}</span></td></tr>))}</tbody></table></div></div>);
+            };
+
+            const ApprovalListPage = () => {
+                const activeList = pengajuanList.filter(p => (currentUser.role === 'HSE' && p.status === 'Under Review HSE') || (currentUser.role === 'Manager' && p.status === 'Under Review Project Manager'));
+                return (<div className="max-w-5xl mx-auto bg-white rounded-lg shadow-md p-4 md:p-8"><h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-6 border-b pb-4">📋 Antrian Approval ({currentUser.role})</h2>{activeList.length === 0 ? <div className="text-center py-12 text-gray-400">Tidak ada antrian</div> : <div className="space-y-4">{activeList.map(p => (<div key={p.id} className="border rounded-lg p-4 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4"><div><p className="font-bold">{p.nomorPengajuan}</p><p className="text-sm text-gray-600">{p.namaPemohon}</p></div><button onClick={() => setSelectedPengajuan(p)} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-semibold w-full md:w-auto">Review & Approve</button></div>))}</div>}</div>);
+            };
+
+            const renderPage = () => {
+                if (selectedPengajuan) return <ReviewPage pengajuan={selectedPengajuan} onBack={() => setSelectedPengajuan(null)} onAction={handleAction} currentUser={currentUser} />;
+                switch(page) {
+                    case 'dashboard': return <Dashboard pengajuanList={pengajuanList} currentUser={currentUser} />;
+                    case 'pengajuan': return <FormPengajuan addPengajuan={addPengajuan} setPage={setPage} currentUser={currentUser} />;
+                    case 'approval': return <ApprovalListPage />;
+                    case 'admin-proses': return <AdminProcessPage />;
+                    case 'serah-terima': return <SerahTerimaPage />;
+                    case 'arsip': return <ArsipDokumen />;
+                    default: return <Dashboard pengajuanList={pengajuanList} currentUser={currentUser} />;
+                }
+            };
+
+            const navigateTo = (pageName) => {
+                setPage(pageName);
+                setSelectedPengajuan(null);
+                setIsSidebarOpen(false);
+            }
+
+            return (
+                <div className="flex min-h-screen bg-gray-100">
+                    {isSidebarOpen && <div className="fixed inset-0 bg-black opacity-50 z-20 md:hidden" onClick={() => setIsSidebarOpen(false)}></div>}
+                    
+                    <aside className={`w-64 bg-gray-900 text-white flex flex-col flex-shrink-0 fixed inset-y-0 left-0 z-30 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                        <div className="p-6 bg-gray-950 flex flex-col items-center">
+                            <img src={logoUrl} alt="Logo Perusahaan" className="h-10 mb-3 object-contain rounded"/>
+                            <label className="cursor-pointer text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-full text-gray-300">
+                                Ganti Logo
+                                <input type="file" accept="image/*" className="hidden" onChange={(e) => { if(e.target.files[0]) { const reader = new FileReader(); reader.onloadend = () => setLogoUrl(reader.result); reader.readAsDataURL(e.target.files[0]); } }} />
+                            </label>
+                        </div>
+                        <div className="p-4 bg-gray-800 text-sm border-b border-gray-700"><p className="font-bold">{currentUser.name}</p><p className="text-xs text-yellow-400 font-semibold uppercase">{currentUser.role}</p></div>
+                        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                            <button onClick={() => navigateTo('dashboard')} className={`w-full text-left block px-4 py-2 rounded transition ${page === 'dashboard' ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>📊 Dashboard</button>
+                            {currentUser.role === 'Pemohon' && (<button onClick={() => navigateTo('pengajuan')} className={`w-full text-left block px-4 py-2 rounded transition ${page === 'pengajuan' ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>📝 Permohonan APD</button>)}
+                            {(currentUser.role === 'HSE' || currentUser.role === 'Manager') && (<button onClick={() => navigateTo('approval')} className={`w-full text-left block px-4 py-2 rounded transition ${page === 'approval' ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>📋 System Approval</button>)}
+                            {currentUser.role === 'AdminGudang' && (<button onClick={() => navigateTo('admin-proses')} className={`w-full text-left block px-4 py-2 rounded transition ${page === 'admin-proses' ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>🏭 Proses Pesanan</button>)}
+                            {(currentUser.role === 'AdminGudang' || currentUser.role === 'Pemohon') && (<button onClick={() => navigateTo('serah-terima')} className={`w-full text-left block px-4 py-2 rounded transition ${page === 'serah-terima' ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>🤝 Serah Terima</button>)}
+                            <button onClick={() => navigateTo('arsip')} className={`w-full text-left block px-4 py-2 rounded transition ${page === 'arsip' ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>🗄️ Arsip</button>
+                        </nav>
+                        <div className="p-4"><button onClick={handleLogout} className="w-full text-left block px-4 py-2 rounded transition bg-red-600 hover:bg-red-700 text-center font-medium">🚪 Logout</button></div>
+                    </aside>
+
+                    <main className="flex-1 p-4 md:p-8 overflow-y-auto bg-gray-100 w-full">
+                        <button className="md:hidden mb-4 p-2 bg-white rounded-md shadow text-gray-700" onClick={() => setIsSidebarOpen(true)}>
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                        </button>
+                        {renderPage()}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
